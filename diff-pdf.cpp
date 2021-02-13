@@ -37,12 +37,19 @@ bool g_verbose = false;
 bool g_skip_identical = false;
 bool g_mark_differences = false;
 long g_channel_tolerance = 0;
+bool g_grayscale = false;
 // Resolution to use for rasterization, in DPI
 long g_resolution = 300;
 
-cairo_surface_t *render_page(PopplerPage *page) {
-  double w, h;
-  poppler_page_get_size(page, &w, &h);
+inline unsigned char to_grayscale(unsigned char r, unsigned char g, unsigned char b)
+{
+    return (unsigned char)(0.2126 * r + 0.7152 * g + 0.0722 * b);
+}
+
+cairo_surface_t *render_page(PopplerPage *page)
+{
+    double w, h;
+    poppler_page_get_size(page, &w, &h);
 
     const int w_px = int((int)g_resolution * w / 72.0);
     const int h_px = int((int)g_resolution * h / 72.0);
@@ -166,7 +173,16 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
         }
 
         // change the B channel to be from s2; RG will be s1
-        *(out + x + 2) = cb2;
+        if (g_grayscale) {
+          // convert both images to grayscale, use blue for s1, red for s2
+          unsigned char gray1 = to_grayscale(cr1, cg1, cb1);
+          unsigned char gray2 = to_grayscale(cr2, cg2, cb2);
+          *(out + x + 0) = gray2;
+          *(out + x + 1) = (gray1 + gray2) / 2;
+          *(out + x + 2) = gray1;
+        } else {
+          *(out + x + 2) = cb2;
+        }
       }
 
       if (g_mark_differences && linediff) {
@@ -337,6 +353,7 @@ int usage() {
   -v, --verbose             be verbose
   -s, --skip-identical      only output pages with differences
   -m, --mark-differences    additionally mark differences on left side
+  -g, --grayscale           only differences will be in color, unchanged parts will show as gray
   --dpi=<dpi>               rasterization dpi (default = %ld)
   --output-diff=<str>       output differences to given PDF file
   --channel-tolerance=<num> consider channel values to be equal if within specified tolerance
@@ -362,6 +379,8 @@ int main(int argc, char *argv[]) {
       g_skip_identical = true;
     } else if (arg == "-m" || arg == "--mark-differences") {
       g_mark_differences = true;
+    } else if (arg == "-g" || arg == "--grayscale") {
+      g_grayscale = true;
     } else if (arg.size() > 14 && arg.find("--output-diff=") == 0) {
       pdf_file = std::filesystem::absolute(arg.substr(14));
     } else if (arg.size() > 20 && arg.find("--channel-tolerance=") == 0) {
