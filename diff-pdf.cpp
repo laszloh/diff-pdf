@@ -37,16 +37,15 @@ bool g_verbose = false;
 bool g_skip_identical = false;
 bool g_mark_differences = false;
 long g_channel_tolerance = 0;
-
 // Resolution to use for rasterization, in DPI
-#define RESOLUTION 300
+long g_resolution = 300;
 
 cairo_surface_t *render_page(PopplerPage *page) {
   double w, h;
   poppler_page_get_size(page, &w, &h);
 
-  const int w_px = int(RESOLUTION * w / 72.0);
-  const int h_px = int(RESOLUTION * h / 72.0);
+    const int w_px = int((int)g_resolution * w / 72.0);
+    const int h_px = int((int)g_resolution * h / 72.0);
 
   cairo_surface_t *surface =
       cairo_image_surface_create(CAIRO_FORMAT_RGB24, w_px, h_px);
@@ -60,10 +59,10 @@ cairo_surface_t *render_page(PopplerPage *page) {
   cairo_fill(cr);
   cairo_restore(cr);
 
-  // Scale so that PDF output covers the whole surface. Image surface is
-  // created with transformation set up so that 1 coordinate unit is 1 pixel;
-  // Poppler assumes 1 unit = 1 point.
-  cairo_scale(cr, RESOLUTION / 72.0, RESOLUTION / 72.0);
+    // Scale so that PDF output covers the whole surface. Image surface is
+    // created with transformation set up so that 1 coordinate unit is 1 pixel;
+    // Poppler assumes 1 unit = 1 point.
+    cairo_scale(cr, (int)g_resolution / 72.0, (int)g_resolution / 72.0);
 
   poppler_page_render(page, cr);
 
@@ -192,16 +191,40 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
 // differences or unmodified page, if there are no diffs) is drawn to it.
 // If thumbnail and thumbnail_width are specified, then a thumbnail with
 // highlighted differences is created too.
-bool page_compare(cairo_t *cr_out, PopplerPage *page1, PopplerPage *page2) {
-  cairo_surface_t *img1 = page1 ? render_page(page1) : NULL;
-  cairo_surface_t *img2 = page2 ? render_page(page2) : NULL;
+bool page_compare(cairo_t *cr_out,
+                  PopplerPage *page1, PopplerPage *page2,
+                  wxImage *thumbnail = NULL, int thumbnail_width = -1)
+{
+    cairo_surface_t *img1 = page1 ? render_page(page1) : NULL;
+    cairo_surface_t *img2 = page2 ? render_page(page2) : NULL;
 
-  cairo_surface_t *diff = diff_images(img1, img2, 0, 0);
-  const bool has_diff = (diff != NULL);
+    cairo_surface_t *diff = diff_images(img1, img2, 0, 0,
+                                        thumbnail, thumbnail_width);
+    const bool has_diff = (diff != NULL);
 
-  if (cr_out) {
-    if (diff) {
-      // render the difference as high-resolution bitmap
+    if ( cr_out )
+    {
+        if ( diff )
+        {
+            // render the difference as high-resolution bitmap
+
+            cairo_save(cr_out);
+            cairo_scale(cr_out, 72.0 / g_resolution, 72.0 / g_resolution);
+
+            cairo_set_source_surface(cr_out, diff ? diff : img1, 0, 0);
+            cairo_paint(cr_out);
+
+            cairo_restore(cr_out);
+        }
+        else
+        {
+            // save space (as well as improve rendering quality) in diff pdf
+            // by writing unchanged pages in their original form rather than
+            // a rasterized one
+
+            if (!g_skip_identical)
+               poppler_page_render(page1, cr_out);
+        }
 
       cairo_save(cr_out);
       cairo_scale(cr_out, 72.0 / RESOLUTION, 72.0 / RESOLUTION);
@@ -314,9 +337,10 @@ int usage() {
   -v, --verbose             be verbose
   -s, --skip-identical      only output pages with differences
   -m, --mark-differences    additionally mark differences on left side
+  --dpi=<dpi>               rasterization dpi (default = %ld)
   --output-diff=<str>       output differences to given PDF file
   --channel-tolerance=<num> consider channel values to be equal if within specified tolerance
-)HELP");
+)HELP", g_resolution);
   return 0;
 }
 
@@ -347,6 +371,12 @@ int main(int argc, char *argv[]) {
                 "Invalid channel-tolerance: %ld. Valid range is 0(default, "
                 "exact matching)-255\n",
                 g_channel_tolerance);
+        return 2;
+      }
+    } else if (arg.size() > 6 && arg.find("--dpi=")) {
+      g_resolution = atol(arg.substr(6).c_str());
+      if (g_resolution < 1 || g_resolution > 2400) {
+        fprintf(stderr, "Invalid dpi: %ld. Valid range is 1-2400\n", g_resolution);
         return 2;
       }
     }
