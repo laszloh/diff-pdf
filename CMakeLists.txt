@@ -12,6 +12,11 @@ target_include_directories(diff-pdf PRIVATE
     "${POPPLERGLIB_INCLUDE_DIRS}"
 )
 
-target_link_libraries(diff-pdf ${POPPLERGLIB_LIBRARIES} stdc++fs)
+target_link_libraries(diff-pdf ${POPPLERGLIB_LIBRARIES})
+
+if(CMAKE_SYSTEM_NAME MATCHES "Linux")
+    target_link_libraries(diff-pdf stdc++fs)
+endif()
+
 target_link_directories(diff-pdf PRIVATE ${POPPLERGLIB_LIBRARY_DIRS})
 install(TARGETS diff-pdf RUNTIME DESTINATION bin)
