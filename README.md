@@ -64,6 +64,19 @@ As for dependencies, diff-pdf requires the following libraries:
 - Cairo >= 1.4
 - Poppler >= 0.10
 
+#### Ubuntu (Dockerfile)
+```
+RUN apt-get install -y make automake cmake g++ libpoppler-glib-dev poppler-utils wxgtk3.0-dev git
+RUN mkdir diff-pdf
+WORKDIR /usr/src/app/diff-pdf
+RUN git clone --depth=1 https://github.com/ggilles/diff-pdf.git .
+RUN mkdir bin
+RUN cmake -v -S . -B bin -DCMAKE_BUILD_TYPE=Release
+RUN cmake --build bin
+RUN cmake --install bin
+RUN cp bin/diff-pdf /usr/local/bin
+```
+
 #### CentOS:
 
 ```
@@ -77,6 +90,7 @@ $ sudo yum install wxGTK wxGTK-devel poppler-glib poppler-glib-devel
 $ sudo apt-get install make automake g++
 $ sudo apt-get install libpoppler-glib-dev poppler-utils libwxgtk3.0-dev
 ```
+
 
 #### macOS:
 Install Command Line Tools for Xcode:
