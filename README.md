@@ -1,3 +1,6 @@
+## THIS IS A FORK OF `diff-pdf` THAT USES NO GRAPHICAL DISPLAY
+This makes it suitable for headless operations like running PDF comparison tests on a Docker container.
+
 *Note: this repository is provided **as-is** and the code is not being actively
 developed. If you wish to improve it, that's greatly appreciated: please make
 the changes and submit a pull request, I'll gladly merge it or help you out
