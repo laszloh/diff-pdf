@@ -85,7 +85,8 @@ cairo_surface_t *render_page(PopplerPage *page)
 // then s2 is displaced by it. If thumbnail and thumbnail_width are specified,
 // then a thumbnail with highlighted differences is created too.
 cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
-                             int offset_x = 0, int offset_y = 0)
+                             int offset_x = 0, int offset_y = 0, 
+                             cairo_surface_t **thumbnail = NULL, int thumbnail_width = -1)
 {
   assert(s1 || s2);
 
@@ -115,6 +116,18 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
 
   float thumbnail_scale;
   int thumbnail_height;
+  cairo_t *thumb_cr = nullptr;
+
+  if(thumbnail_width > 0) {
+    thumbnail_scale = float(thumbnail_width) / float(rdiff.width);
+    thumbnail_height = int(rdiff.height * thumbnail_scale);
+
+    *thumbnail = cairo_image_surface_create(CAIRO_FORMAT_RGB24, thumbnail_width, thumbnail_height);
+    thumb_cr = cairo_create(*thumbnail);
+    cairo_set_source_rgb(thumb_cr, 1, 1, 1);
+    cairo_rectangle(thumb_cr, 0, 0, thumbnail_width, thumbnail_height);
+    cairo_fill(thumb_cr);
+  }
 
   // clear the surface to white background if the merged images don't fully
   // overlap:
@@ -172,6 +185,21 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
             cb1 < (cb2 - g_channel_tolerance)) {
           changes = true;
           linediff = true;
+
+          if(thumb_cr) {
+            // calculate the coordinates in the thumbnail
+            int tx = int((r2.x +x/4.0) * thumbnail_scale);
+            int ty = int((r2.y +y) * thumbnail_scale);
+
+            // Limit the coordinates to the thumbnail size (may be
+            // off slightly due to rounding errors).
+            tx = std::min(tx, thumbnail_width - 1);
+            ty = std::min(ty, thumbnail_height - 1);
+
+            cairo_set_source_rgb(thumb_cr, 1, 0, 0);
+            cairo_rectangle(thumb_cr, tx, ty, 1, 1);
+            cairo_fill(thumb_cr);
+          }
         }
 
         // change the B channel to be from s2; RG will be s1
@@ -197,6 +225,10 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
     }
   }
 
+  if (thumb_cr){
+    cairo_destroy(thumb_cr);
+  }
+
   if (changes) {
     return diff;
   } else {
@@ -213,7 +245,11 @@ bool page_compare(cairo_t *cr_out, PopplerPage *page1, PopplerPage *page2) {
   cairo_surface_t *img1 = page1 ? render_page(page1) : NULL;
   cairo_surface_t *img2 = page2 ? render_page(page2) : NULL;
 
-  cairo_surface_t *diff = diff_images(img1, img2, 0, 0);
+  cairo_surface_t *thumb = page1 ? poppler_page_get_thumbnail(page1) : NULL;
+  int width, height;
+  poppler_page_get_thumbnail_size(page1, &width, &height);
+
+  cairo_surface_t *diff = diff_images(img1, img2, 0, 0, &thumb, width);
   const bool has_diff = (diff != NULL);
 
   if (cr_out) {
