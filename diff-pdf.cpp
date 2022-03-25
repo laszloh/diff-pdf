@@ -23,6 +23,7 @@
 #include <filesystem>
 #include <string>
 #include <vector>
+#include <stack>
 
 #include <cairo-pdf.h>
 #include <cairo.h>
@@ -38,8 +39,8 @@ bool g_skip_identical = false;
 bool g_mark_differences = false;
 long g_channel_tolerance = 0;
 bool g_grayscale = false;
-// Resolution to use for rasterization, in DPI
 long g_resolution = 300;
+int g_mark_tol = 10;
 
 inline unsigned char to_grayscale(unsigned char r, unsigned char g, unsigned char b)
 {
@@ -48,11 +49,11 @@ inline unsigned char to_grayscale(unsigned char r, unsigned char g, unsigned cha
 
 cairo_surface_t *render_page(PopplerPage *page)
 {
-    double w, h;
-    poppler_page_get_size(page, &w, &h);
+  double w, h;
+  poppler_page_get_size(page, &w, &h);
 
-    const int w_px = int((int)g_resolution * w / 72.0);
-    const int h_px = int((int)g_resolution * h / 72.0);
+  const int w_px = int((int)g_resolution * w / 72.0);
+  const int h_px = int((int)g_resolution * h / 72.0);
 
   cairo_surface_t *surface =
       cairo_image_surface_create(CAIRO_FORMAT_RGB24, w_px, h_px);
@@ -66,10 +67,10 @@ cairo_surface_t *render_page(PopplerPage *page)
   cairo_fill(cr);
   cairo_restore(cr);
 
-    // Scale so that PDF output covers the whole surface. Image surface is
-    // created with transformation set up so that 1 coordinate unit is 1 pixel;
-    // Poppler assumes 1 unit = 1 point.
-    cairo_scale(cr, (int)g_resolution / 72.0, (int)g_resolution / 72.0);
+  // Scale so that PDF output covers the whole surface. Image surface is
+  // created with transformation set up so that 1 coordinate unit is 1 pixel;
+  // Poppler assumes 1 unit = 1 point.
+  cairo_scale(cr, (int)g_resolution / 72.0, (int)g_resolution / 72.0);
 
   poppler_page_render(page, cr);
 
@@ -84,7 +85,8 @@ cairo_surface_t *render_page(PopplerPage *page)
 // then s2 is displaced by it. If thumbnail and thumbnail_width are specified,
 // then a thumbnail with highlighted differences is created too.
 cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
-                             int offset_x = 0, int offset_y = 0) {
+                             int offset_x = 0, int offset_y = 0)
+{
   assert(s1 || s2);
 
   struct Rect {
@@ -207,43 +209,19 @@ cairo_surface_t *diff_images(cairo_surface_t *s1, cairo_surface_t *s2,
 // differences or unmodified page, if there are no diffs) is drawn to it.
 // If thumbnail and thumbnail_width are specified, then a thumbnail with
 // highlighted differences is created too.
-bool page_compare(cairo_t *cr_out,
-                  PopplerPage *page1, PopplerPage *page2,
-                  wxImage *thumbnail = NULL, int thumbnail_width = -1)
-{
-    cairo_surface_t *img1 = page1 ? render_page(page1) : NULL;
-    cairo_surface_t *img2 = page2 ? render_page(page2) : NULL;
+bool page_compare(cairo_t *cr_out, PopplerPage *page1, PopplerPage *page2) {
+  cairo_surface_t *img1 = page1 ? render_page(page1) : NULL;
+  cairo_surface_t *img2 = page2 ? render_page(page2) : NULL;
 
-    cairo_surface_t *diff = diff_images(img1, img2, 0, 0,
-                                        thumbnail, thumbnail_width);
-    const bool has_diff = (diff != NULL);
+  cairo_surface_t *diff = diff_images(img1, img2, 0, 0);
+  const bool has_diff = (diff != NULL);
 
-    if ( cr_out )
-    {
-        if ( diff )
-        {
-            // render the difference as high-resolution bitmap
-
-            cairo_save(cr_out);
-            cairo_scale(cr_out, 72.0 / g_resolution, 72.0 / g_resolution);
-
-            cairo_set_source_surface(cr_out, diff ? diff : img1, 0, 0);
-            cairo_paint(cr_out);
-
-            cairo_restore(cr_out);
-        }
-        else
-        {
-            // save space (as well as improve rendering quality) in diff pdf
-            // by writing unchanged pages in their original form rather than
-            // a rasterized one
-
-            if (!g_skip_identical)
-               poppler_page_render(page1, cr_out);
-        }
+  if (cr_out) {
+    if (diff) {
+      // render the difference as high-resolution bitmap
 
       cairo_save(cr_out);
-      cairo_scale(cr_out, 72.0 / RESOLUTION, 72.0 / RESOLUTION);
+      cairo_scale(cr_out, 72.0 / g_resolution, 72.0 / g_resolution);
 
       cairo_set_source_surface(cr_out, diff ? diff : img1, 0, 0);
       cairo_paint(cr_out);
@@ -367,8 +345,8 @@ int main(int argc, char *argv[]) {
     return 2;
   }
   std::string pdf_file;
-  std::string file1 = std::filesystem::absolute(argv[argc - 2]);
-  std::string file2 = std::filesystem::absolute(argv[argc - 1]);
+  std::string file1 = std::filesystem::absolute(argv[argc - 2]).u8string();
+  std::string file2 = std::filesystem::absolute(argv[argc - 1]).u8string();
   for (int i = 1; i < argc - 2; ++i) {
     std::string arg = argv[i];
     if (arg == "-h" || arg == "--help") {
@@ -382,7 +360,7 @@ int main(int argc, char *argv[]) {
     } else if (arg == "-g" || arg == "--grayscale") {
       g_grayscale = true;
     } else if (arg.size() > 14 && arg.find("--output-diff=") == 0) {
-      pdf_file = std::filesystem::absolute(arg.substr(14));
+      pdf_file = std::filesystem::absolute(arg.substr(14)).u8string();
     } else if (arg.size() > 20 && arg.find("--channel-tolerance=") == 0) {
       g_channel_tolerance = atol(arg.substr(20).c_str());
       if (g_channel_tolerance < 0 || g_channel_tolerance > 255) {
@@ -392,7 +370,7 @@ int main(int argc, char *argv[]) {
                 g_channel_tolerance);
         return 2;
       }
-    } else if (arg.size() > 6 && arg.find("--dpi=")) {
+    } else if (arg.size() > 6 && arg.find("--dpi=") == 0) {
       g_resolution = atol(arg.substr(6).c_str());
       if (g_resolution < 1 || g_resolution > 2400) {
         fprintf(stderr, "Invalid dpi: %ld. Valid range is 1-2400\n", g_resolution);
